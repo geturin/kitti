@@ -6,7 +6,6 @@ from std_msgs.msg import Header
 import numpy as np
 import cv2
 from depth2pcd import *
-import pcl
 from nav_msgs.msg import Odometry
 
 
@@ -29,40 +28,52 @@ class pointcloud_pub(object):
         rospy.Publisher(topic_name, PointCloud2, queue_size=1).publish(self.pcldata)
 
 
+def canny_filter(rgb,depth):
+    #使用边缘检测来对深度图滤波 去除掉边缘毛躁点
+    imgray=cv2.cvtColor(rgb,cv2.COLOR_BGR2GRAY)
+    ret,thresh=cv2.threshold(imgray,100,200,0)
+    contours,hierarchy=cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    depth=cv2.drawContours(depth,contours,-1,(0),5) 
+    return depth
 
 
-def pcd_filter(pcd):
-    p = pcl.PointCloud(np.array(pcd, dtype=np.float32))
-    k=p.to_array()
+# def pcd_filter(pcd):
+#     p = pcl.PointCloud(np.array(pcd, dtype=np.float32))
+#     k=p.to_array()
 
 
-    fil = p.make_statistical_outlier_filter()
-    fil.set_mean_k(50)
-    fil.set_std_dev_mul_thresh(1.1)
+#     fil = p.make_statistical_outlier_filter()
+#     fil.set_mean_k(50)
+#     fil.set_std_dev_mul_thresh(1.1)
 
 
-    cloud_filtered = fil.filter()
+#     cloud_filtered = fil.filter()
 
-    pcd=cloud_filtered.to_array()
+#     pcd=cloud_filtered.to_array()
 
-    return pcd
+#     return pcd
 
 
 publisher = pointcloud_pub()
 orb_pub = pointcloud_pub()
 
 frame =0
-rate = rospy.Rate(1)
+rate = rospy.Rate(0.5)
 mesh_scal=10
-depth_transform = depth_to_pcd(5)
+depth_transform = depth_to_pcd(3)
 
 odom_pub = rospy.Publisher("/visual_slam/odom", Odometry, queue_size=1)
 odom = Odometry()
 odom.child_frame_id = "camera"
+depth=15.11806784*np.load("/home/kero/catkin_ws/src/kitti/data/ai_depth.npy")
+rgb = cv2.imread("/home/kero/catkin_ws/src/kitti/data/raw_image.png")
+
+pcd = depth_transform.get_pcd(depth)
+pcd_fillter = depth_transform.get_pcd(canny_filter(rgb,depth))
 
 while not rospy.is_shutdown():
-    depth=15.11806784*np.load("/home/kero/catkin_ws/src/kitti/data/ai_depth.npy")
-    pcd = depth_transform.get_pcd(depth)
+    
+
     # #pcd = pcd_filter(pcd)
     # #栅格化（test）
     # pcd =(mesh_scal*pcd).astype(int)
@@ -74,12 +85,12 @@ while not rospy.is_shutdown():
     # orb_pcd = np.load("/home/kero/catkin_ws/src/kitti/data/testPCD.npy")
 
     publisher.read_pcd(pcd)
-    publisher.pub(frame_id="world",topic_name='/test_pcd')
+    publisher.pub(frame_id="world",topic_name='/raw')
 
-    odom_pub.publish(odom)
+    # odom_pub.publish(odom)
 
-    # orb_pub.read_pcd(orb_pcd)
-    # orb_pub.pub(frame_id="map",topic_name='/orb_pcd')
+    orb_pub.read_pcd(pcd_fillter)
+    orb_pub.pub(frame_id="world",topic_name='/filter')
 
     
     rate.sleep() 
